@@ -132,4 +132,5 @@ dmypy.json
 .idea/
 
 # project specific
+*.xlsx
 resources/provided_images/
