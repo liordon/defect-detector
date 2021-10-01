@@ -27,7 +27,8 @@ def find_defects_by_diffing_images(image, aligned_template, _debug=False):
     return possible_defects
 
 
-def search_for_defects(image_path, template_path, _debug=False):
+def search_for_defects_in_sliding_windows(image_path, template_path, sliding_window_size=200, sliding_window_steps=50,
+        _debug=False):
     # load the input image and template from disk
     print("[INFO] loading images...")
     image = cv2.imread(image_path)
@@ -42,21 +43,28 @@ def search_for_defects(image_path, template_path, _debug=False):
     image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     template = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
 
-    aligned_template = align_template_to_image(template, image, _debug=_debug)
-    if aligned_template is None:
-        exit(-1)
+    for x_offset in range(0, image.shape[0] - sliding_window_size, sliding_window_steps):
+        for y_offset in range(0, image.shape[1] - sliding_window_size, sliding_window_steps):
+            print(f"[INFO] inspecting {x_offset}, {y_offset} window")
+            cropped_image = image[x_offset:x_offset + sliding_window_size, y_offset:y_offset + sliding_window_size]
+            cropped_template = template[x_offset:x_offset + sliding_window_size,
+            y_offset:y_offset + sliding_window_size]
 
-    possible_defects = find_defects_by_diffing_images(image, aligned_template,
-        _debug=_debug)
+            aligned_template = align_template_to_image(cropped_template, cropped_image, _debug=_debug)
+            if aligned_template is None:
+                continue
 
-    _, contours, hierarchy = cv2.findContours(possible_defects, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    defect_contours = [contour for contour in contours if could_be_defect(contour)]
-    gray_drawing = filter_and_draw_contours(defect_contours, hierarchy, image.shape, area_threshold=0,
-        _debug=_debug)
-    boolean_image = cv2.threshold(gray_drawing, 1, 255, cv2.THRESH_BINARY)[1]
+            possible_defects = find_defects_by_diffing_images(cropped_image, aligned_template,
+                _debug=_debug)
 
-    cv2.imshow("Result", boolean_image)
-    cv2.waitKey(0)
+            _, contours, hierarchy = cv2.findContours(possible_defects, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+            defect_contours = [contour for contour in contours if could_be_defect(contour)]
+            gray_drawing = filter_and_draw_contours(defect_contours, hierarchy, image.shape, area_threshold=0,
+                _debug=_debug)
+            boolean_image = cv2.threshold(gray_drawing, 1, 255, cv2.THRESH_BINARY)[1]
+
+            cv2.imshow("Result", boolean_image)
+            cv2.waitKey(0)
 
 
 if __name__ == "__main__":
@@ -71,4 +79,4 @@ if __name__ == "__main__":
         help="display partial results and detection process snapshots")
     args = vars(ap.parse_args())
 
-    search_for_defects(args["image"], args["template"], _debug=args["debug"])
+    search_for_defects_in_sliding_windows(args["image"], args["template"], _debug=args["debug"])
