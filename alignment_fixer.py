@@ -16,51 +16,6 @@ def is_match_sensible(match, image_feature_keys, template_feature_keys):
     return euclidian_distance(template_feature_keys[match.queryIdx].pt, image_feature_keys[match.trainIdx].pt) < 30
 
 
-def align_template_to_image_using_homography(template, image, maxFeatures=500, keepPercent=0.2, _debug=False):
-    # use ORB to detect keypoints and extract (binary) local
-    # invariant features
-    patch_size = 5
-    orb = cv2.ORB_create(maxFeatures, patchSize=patch_size + 2, edgeThreshold=patch_size)
-    (image_feature_keys, image_feature_descriptors) = orb.detectAndCompute(image, None)
-    (template_feature_keys, template_feature_descriptors) = orb.detectAndCompute(template, None)
-
-    # match the features
-    matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-    matches = matcher.match(template_feature_descriptors, image_feature_descriptors, None)
-
-    # sort the matches by their distance (the smaller the distance,
-    # the "more similar" the features are)
-    matches = sorted(matches, key=lambda x: x.distance)
-    # keep only the top matches
-    # keep = int(len(matches) * keepPercent)
-    # matches = matches[:keep]
-    matches = [match for match in matches if is_match_sensible(match, image_feature_keys, template_feature_keys)]
-    # check to see if we should visualize the matched keypoints
-    if _debug:
-        visual_matches = cv2.drawMatches(template, template_feature_keys, image, image_feature_keys,
-            matches, None)
-        visual_matches = imutils.resize(visual_matches, width=1000)
-        cv2.imshow("Matched Keypoints", visual_matches)
-        cv2.waitKey(0)
-
-    # allocate memory for the keypoints (x, y)-coordinates from the
-    # top matches -- we'll use these coordinates to compute our
-    # homography matrix
-    match_coordinates_in_image = np.zeros((len(matches), 2), dtype="float")
-    match_coordinates_in_template = np.zeros((len(matches), 2), dtype="float")
-    # loop over the top matches
-    for (index, matches) in enumerate(matches):
-        # indicate that the two keypoints in the respective images
-        # map to each other
-        match_coordinates_in_template[index] = template_feature_keys[matches.queryIdx].pt
-        match_coordinates_in_image[index] = image_feature_keys[matches.trainIdx].pt
-
-    # compute the homography matrix between the two sets of matched
-    # points
-    (H, mask) = cv2.findHomography(match_coordinates_in_template, match_coordinates_in_image, method=cv2.RANSAC)
-    return H
-
-
 def unsharp_mask(image, kernel_size=(5, 5), sigma=1.0, amount=1.0, threshold=0):
     """Return a sharpened version of the image, using an unsharp mask."""
     blurred = cv2.GaussianBlur(image, kernel_size, sigma)
@@ -72,10 +27,6 @@ def unsharp_mask(image, kernel_size=(5, 5), sigma=1.0, amount=1.0, threshold=0):
         low_contrast_mask = np.absolute(image - blurred) < threshold
         np.copyto(sharpened, image, where=low_contrast_mask)
     return sharpened
-
-
-def align_template_to_image_using_affine_transform(template, image):
-    return cv2.estimateRigidTransform(template, image, False)
 
 
 def find_contours(image, threshold, _debug=False):
@@ -145,7 +96,7 @@ def prepare_for_matching(image_to_prepare, kernel, method: PreProcess, _debug=Fa
     return find_contours(image, 100, _debug=_debug)
 
 
-def align_template_to_image(template, image, should_use_homography=False, _debug=False):
+def align_template_to_image(template, image, _debug=False):
     global aligned_template
     preprocessing_method = PreProcess.MEDIAN_BLUR
     kernel_size = 5
@@ -153,19 +104,12 @@ def align_template_to_image(template, image, should_use_homography=False, _debug
     template_for_alignment = prepare_for_matching(template, kernel_size, preprocessing_method,
         _debug=_debug)
     (h, w) = image.shape[:2]
-    if should_use_homography:
-        transformation = align_template_to_image_using_homography(template_for_alignment, image_for_alignment,
-            _debug=_debug)
-        aligned_template = cv2.warpPerspective(template, transformation, (w, h))
-        aligned_template_for_presentation = cv2.warpPerspective(template_for_alignment, transformation, (w, h))
-    else:
-        transformation = align_template_to_image_using_affine_transform(template_for_alignment,
-            image_for_alignment)
-        if transformation is None:
-            print("[ERROR] could not find affine transformation")
-            exit(-1)
-        aligned_template = cv2.warpAffine(template, transformation, (w, h))
-        aligned_template_for_presentation = cv2.warpAffine(template_for_alignment, transformation, (w, h))
+    transformation = cv2.estimateRigidTransform(template_for_alignment, image_for_alignment, False)
+    if transformation is None:
+        print("[ERROR] could not find affine transformation")
+        return None
+    aligned_template = cv2.warpAffine(template, transformation, (w, h))
+    aligned_template_for_presentation = cv2.warpAffine(template_for_alignment, transformation, (w, h))
     if _debug:
         present_overlayed_images(aligned_template_for_presentation, image_for_alignment)
         present_overlayed_images(aligned_template, image)

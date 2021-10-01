@@ -12,7 +12,6 @@ def could_be_defect(contour, defect_size_threshold=20):
 
 
 def find_defects_by_diffing_images(image, aligned_template, _debug=False):
-    global possible_defects
     print("[INFO] diffing images...")
     area_of_interest = cv2.threshold(aligned_template, 0, 255, cv2.THRESH_BINARY)[1]
     area_of_interest = cv2.erode(area_of_interest, np.ones((21, 21), np.uint8), iterations=3)
@@ -28,42 +27,48 @@ def find_defects_by_diffing_images(image, aligned_template, _debug=False):
     return possible_defects
 
 
+def search_for_defects(image_path, template_path, _debug=False):
+    # load the input image and template from disk
+    print("[INFO] loading images...")
+    image = cv2.imread(image_path)
+    template = cv2.imread(template_path)
+    if image is None or template is None:
+        print("[ERROR] image to reference could not be loaded. please check paths.")
+        exit(-1)
+
+    # align the images
+    print("[INFO] aligning images...")
+    # convert both the input image and template to grayscale
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    template = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+
+    aligned_template = align_template_to_image(template, image, _debug=_debug)
+    if aligned_template is None:
+        exit(-1)
+
+    possible_defects = find_defects_by_diffing_images(image, aligned_template,
+        _debug=_debug)
+
+    _, contours, hierarchy = cv2.findContours(possible_defects, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    defect_contours = [contour for contour in contours if could_be_defect(contour)]
+    gray_drawing = filter_and_draw_contours(defect_contours, hierarchy, image.shape, area_threshold=0,
+        _debug=_debug)
+    boolean_image = cv2.threshold(gray_drawing, 1, 255, cv2.THRESH_BINARY)[1]
+
+    cv2.imshow("Result", boolean_image)
+    cv2.waitKey(0)
+
+
 if __name__ == "__main__":
-    show_debug_windows = False
-    use_homography = False
+    show_debug_windows = True
     # construct the argument parser and parse the arguments
     ap = argparse.ArgumentParser()
     ap.add_argument("-i", "--image", required=True,
         help="path to input image that we'll align to template")
     ap.add_argument("-t", "--template", required=True,
         help="path to input template image")
+    ap.add_argument("-d", "--debug", required=False, default=show_debug_windows,
+        help="display partial results and detection process snapshots")
     args = vars(ap.parse_args())
 
-    # load the input image and template from disk
-    print("[INFO] loading images...")
-    image = cv2.imread(args["image"])
-    template = cv2.imread(args["template"])
-    if image is None or template is None:
-        print("[ERROR] image to reference could not be loaded. please check paths.")
-        exit(-1)
-
-    image_name = args["image"].split("/")[-1]
-    # align the images
-    print("[INFO] aligning images...")
-
-    # convert both the input image and template to grayscale
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    template = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
-
-    aligned_template = align_template_to_image(template, image, _debug=show_debug_windows)
-
-    possible_defects = find_defects_by_diffing_images(image, aligned_template, _debug=show_debug_windows)
-
-    _, contours, hierarchy = cv2.findContours(possible_defects, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    defect_contours = [contour for contour in contours if could_be_defect(contour)]
-    gray_drawing = filter_and_draw_contours(defect_contours, hierarchy, image.shape, area_threshold=0,
-        _debug=show_debug_windows)
-    boolean_image = cv2.threshold(gray_drawing, 1, 255, cv2.THRESH_BINARY)[1]
-
-    cv2.imshow("Result", boolean_image)
-    cv2.waitKey(0)
+    search_for_defects(args["image"], args["template"], _debug=args["debug"])
