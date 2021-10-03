@@ -116,27 +116,32 @@ def align_template_to_image(template, image, _debug=False):
     return aligned_template
 
 
-def crop_relevant_part_of_reference(template, image, _debug=False):
+def find_matching_point_between_patch_and_reference(reference, image_patch, _debug=False):
     preprocessing_method = PreProcess.MEDIAN_BLUR
     kernel_size = 5
-    image_for_alignment = prepare_for_matching(image, kernel_size, preprocessing_method, _debug=_debug)
-    template_for_alignment = prepare_for_matching(template, kernel_size, preprocessing_method,
-        _debug=_debug)
-    (h, w) = image.shape[:2]
-    # correlations = np.zeros((h, w))
-    correlations = cv2.matchTemplate(image_for_alignment, template_for_alignment, cv2.TM_SQDIFF)
+
+    if _debug:
+        cv2.imshow("template for alignment", reference)
+        cv2.imshow("image for alignment", image_patch)
+        cv2.waitKey(0)
+    patch_for_alignment = image_patch#prepare_for_matching(image_patch, kernel_size, preprocessing_method, _debug=_debug)
+    reference_for_alignment = reference#prepare_for_matching(reference, kernel_size, preprocessing_method,
+        # _debug=_debug)
+    (h, w) = image_patch.shape[:2]
+    correlations = cv2.matchTemplate(reference_for_alignment, patch_for_alignment, cv2.TM_SQDIFF)
     minVal, maxVal, minLoc, maxLoc = cv2.minMaxLoc(correlations)
-    aligned_image = np.zeros(template.shape, dtype=np.uint8)
-    cropped_template = template[minLoc[1]:minLoc[1] + h, minLoc[0]:minLoc[0] + w]
+    aligned_image = np.zeros(reference.shape, dtype=np.uint8)
+    cropped_template = reference[minLoc[1]:minLoc[1] + h, minLoc[0]:minLoc[0] + w]
     for i in range(h):
         for j in range(w):
-            aligned_image[i + minLoc[1], j + minLoc[0]] = image[i, j]
+            aligned_image[i + minLoc[1], j + minLoc[0]] = image_patch[i, j]
     if _debug:
-        alignment_mask = np.zeros(template.shape, dtype=np.uint8)
+        alignment_mask = np.zeros(reference.shape, dtype=np.uint8)
         for i in range(correlations.shape[0]):
             for j in range(correlations.shape[1]):
                 alignment_mask[i, j] = int(correlations[i, j] * 255 / maxVal)
+        present_overlayed_images(alignment_mask, reference)
+        present_overlayed_images(reference, aligned_image)
         cv2.imshow("cropped_template", cropped_template)
-        present_overlayed_images(alignment_mask, template)
-        present_overlayed_images(template, aligned_image)
-    return cropped_template
+        cv2.waitKey(0)
+    return minLoc, minVal

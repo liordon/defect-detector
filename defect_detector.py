@@ -3,8 +3,8 @@ import argparse
 import cv2
 import numpy as np
 
-from alignment_fixer import crop_relevant_part_of_reference, filter_and_draw_contours
-from simple_manipulations import crop_image
+from alignment_fixer import find_matching_point_between_patch_and_reference, filter_and_draw_contours
+from simple_manipulations import crop_image_by_size, crop_image_by_coordinates
 
 
 def could_be_defect(contour, defect_size_threshold=20):
@@ -41,23 +41,31 @@ def search_for_defects_in_sliding_windows(image_path, template_path, sliding_win
     # align the images
     print("[INFO] aligning images...")
     # convert both the input image and template to grayscale
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)[20:-40,20:-20]
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     template = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+
+    image = crop_image_by_reference_coverage(image, template)
+
+    if _debug:
+        cv2.imshow("image cropped according to coverage", image)
+
 
     accumulated_defects = np.ones(image.shape)
 
-    for x_offset in range(0, image.shape[1] - int(sliding_window_size / 2), sliding_window_steps):
-        for y_offset in range(0, image.shape[0] - int(sliding_window_size / 2), sliding_window_steps):
-            # extra_width = (1 if x_offset % sliding_window_size == 0 and y_offset % sliding_window_size == 0 else 0)
+    for height_offset in range(0, image.shape[0] - int(sliding_window_size / 2), sliding_window_steps):
+        for width_offset in range(0, image.shape[1] - int(sliding_window_size / 2), sliding_window_steps):
+            # extra_width = (1 if x_offset % sliding_window_size == 0 and width_offset % sliding_window_size == 0 else 0)
             # cv2.rectangle(image,
-            #     (x_offset, y_offset),
-            #     (x_offset + sliding_window_size, y_offset + sliding_window_size),
+            #     (x_offset, width_offset),
+            #     (x_offset + sliding_window_size, width_offset + sliding_window_size),
             #     (150,0,0), 1 + extra_width)
             # continue
-            print(f"[INFO] inspecting {x_offset}, {y_offset} window")
-            cropped_image = crop_image(image, x_offset, y_offset, sliding_window_size)
+            print(f"[INFO] inspecting {height_offset}, {width_offset} window")
+            cropped_image = crop_image_by_size(image, height_offset, width_offset, sliding_window_size)
 
-            cropped_template = crop_relevant_part_of_reference(template, cropped_image, _debug=_debug)
+            minLoc, _ = find_matching_point_between_patch_and_reference(template, cropped_image, _debug=_debug)
+            (h, w) = cropped_image.shape[:2]
+            cropped_template = template[minLoc[1]:minLoc[1] + h, minLoc[0]:minLoc[0] + w]
             if cropped_template is None:
                 continue
 
@@ -71,7 +79,7 @@ def search_for_defects_in_sliding_windows(image_path, template_path, sliding_win
 
             for i in range(cropped_image.shape[1]):
                 for j in range(cropped_image.shape[1]):
-                    accumulated_defects[x_offset + i, y_offset+j] *= gray_drawing[i,j]
+                    accumulated_defects[height_offset + i, width_offset+j] *= gray_drawing[i,j]
 
             cv2.imshow("Result", accumulated_defects)
             cv2.waitKey(0)
@@ -79,6 +87,55 @@ def search_for_defects_in_sliding_windows(image_path, template_path, sliding_win
     boolean_image = cv2.threshold(accumulated_defects, 1, 255, cv2.THRESH_BINARY)[1]
     cv2.imshow("windows", boolean_image)
     cv2.waitKey(0)
+
+
+def crop_image_by_reference_coverage(image, reference, _debug=False):
+    (h, w) = image.shape[:2]
+
+    quarter_image_size = int(min(image.shape[:2]) / 4)
+    image_left = crop_image_by_size(image, quarter_image_size, 0, quarter_image_size * 2)
+    template_left = crop_image_by_size(reference, quarter_image_size, 0, quarter_image_size * 2)
+    minImageLoc, minImageVal = find_matching_point_between_patch_and_reference(reference, image_left, _debug=_debug)
+    minTemplateLoc, minTemplateVal = find_matching_point_between_patch_and_reference(image, template_left,
+        _debug=_debug)
+    left_image_edge = 0 if minImageVal < minTemplateVal else minTemplateLoc[0]
+
+    image_top = crop_image_by_size(image, 0, quarter_image_size, quarter_image_size * 2)
+    template_top = crop_image_by_size(reference, 0, quarter_image_size, quarter_image_size * 2)
+    minImageLoc, minImageVal = find_matching_point_between_patch_and_reference(reference, image_top, _debug=_debug)
+    minTemplateLoc, minTemplateVal = find_matching_point_between_patch_and_reference(image, template_top, _debug=_debug)
+    top_image_edge = 0 if minImageVal < minTemplateVal else minTemplateLoc[1]
+
+    image_right = crop_image_by_size(image, quarter_image_size, w - quarter_image_size * 2, quarter_image_size * 2)
+    template_right = crop_image_by_size(reference, quarter_image_size, w - quarter_image_size * 2, quarter_image_size * 2)
+    minImageLoc, minImageVal = find_matching_point_between_patch_and_reference(reference, image_right, _debug=_debug)
+    minTemplateLoc, minTemplateVal = find_matching_point_between_patch_and_reference(image, template_right,
+        _debug=_debug)
+    right_image_edge = w if minImageVal < minTemplateVal else minTemplateLoc[0] + quarter_image_size * 2
+
+    image_bottom = crop_image_by_size(image, h - quarter_image_size * 2, quarter_image_size, quarter_image_size * 2)
+    template_bottom = crop_image_by_size(reference, h - quarter_image_size * 2, quarter_image_size, quarter_image_size * 2)
+    minImageLoc, minImageVal = find_matching_point_between_patch_and_reference(reference, image_bottom, _debug=_debug)
+    minTemplateLoc, minTemplateVal = find_matching_point_between_patch_and_reference(image, template_bottom,
+        _debug=_debug)
+    bottom_image_edge = h if minImageVal < minTemplateVal else minTemplateLoc[1] + quarter_image_size * 2
+
+    if _debug:
+        print(f"Original image dims: {(h, w)}")
+        print(f"Cropped image limits: {(top_image_edge, left_image_edge), (bottom_image_edge, right_image_edge)}")
+
+        image_with_rectangle = image.copy()
+        cv2.rectangle(
+            image_with_rectangle,
+            (left_image_edge, top_image_edge),
+            (right_image_edge, bottom_image_edge),
+            (255,255,255),
+            thickness=2
+        )
+        cv2.imshow("Image marked for coverage crop", image_with_rectangle)
+        cv2.waitKey(0)
+
+    return crop_image_by_coordinates(image, top_image_edge, bottom_image_edge, left_image_edge, right_image_edge)
 
 
 if __name__ == "__main__":
