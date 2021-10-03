@@ -16,6 +16,8 @@ def find_defects_by_diffing_images(image, aligned_template, _debug=False):
     print("[INFO] diffing images...")
     area_of_interest = cv2.threshold(aligned_template, 0, 255, cv2.THRESH_BINARY)[1]
     area_of_interest = cv2.erode(area_of_interest, np.ones((21, 21), np.uint8), iterations=3)
+    image = cv2.medianBlur(image, 3, 0)
+    aligned_template = cv2.medianBlur(aligned_template, (3), 0)
     # compute the absolute difference between the images
     image_delta = cv2.absdiff(image, aligned_template)
     image_delta = np.where(area_of_interest, image_delta, area_of_interest)
@@ -77,7 +79,7 @@ def search_for_defects_in_sliding_windows(image_path, template_path, sliding_win
             gray_drawing = filter_and_draw_contours(contours, hierarchy, cropped_image.shape, area_threshold=0,
                 _debug=_debug)
 
-            for i in range(cropped_image.shape[1]):
+            for i in range(cropped_image.shape[0]):
                 for j in range(cropped_image.shape[1]):
                     accumulated_defects[height_offset + i, width_offset+j] *= gray_drawing[i,j]
 
@@ -135,7 +137,7 @@ def crop_image_by_reference_coverage(image, reference, _debug=False):
         cv2.imshow("Image marked for coverage crop", image_with_rectangle)
         cv2.waitKey(0)
 
-    return crop_image_by_coordinates(image, top_image_edge, bottom_image_edge, left_image_edge, right_image_edge)
+    return crop_image_by_coordinates(image, top_image_edge+10, bottom_image_edge-10, left_image_edge+10, right_image_edge-10)
 
 
 if __name__ == "__main__":
