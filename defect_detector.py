@@ -3,7 +3,8 @@ import argparse
 import cv2
 import numpy as np
 
-from alignment_fixer import find_matching_point_between_patch_and_reference, filter_and_draw_contours
+from alignment_fixer import find_matching_point_between_patch_and_reference, filter_and_draw_contours, \
+    align_template_to_image
 from simple_manipulations import crop_image_by_size, crop_image_by_coordinates
 
 
@@ -52,37 +53,42 @@ def search_for_defects_in_sliding_windows(image_path, template_path, sliding_win
 
     accumulated_defects = np.ones(image.shape)
 
-    for height_offset in range(0, image.shape[0] - int(sliding_window_size / 2), sliding_window_steps):
-        for width_offset in range(0, image.shape[1] - int(sliding_window_size / 2), sliding_window_steps):
-            # extra_width = (1 if x_offset % sliding_window_size == 0 and width_offset % sliding_window_size == 0 else 0)
-            # cv2.rectangle(image,
-            #     (x_offset, width_offset),
-            #     (x_offset + sliding_window_size, width_offset + sliding_window_size),
-            #     (150,0,0), 1 + extra_width)
-            # continue
-            print(f"[INFO] inspecting {height_offset}, {width_offset} window")
-            cropped_image = crop_image_by_size(image, height_offset, width_offset, sliding_window_size)
+    # for height_offset in range(0, image.shape[0] - int(sliding_window_size / 2), sliding_window_steps):
+    #     for width_offset in range(0, image.shape[1] - int(sliding_window_size / 2), sliding_window_steps):
+    #         # extra_width = (1 if x_offset % sliding_window_size == 0 and width_offset % sliding_window_size == 0 else 0)
+    #         # cv2.rectangle(image,
+    #         #     (x_offset, width_offset),
+    #         #     (x_offset + sliding_window_size, width_offset + sliding_window_size),
+    #         #     (150,0,0), 1 + extra_width)
+    #         # continue
+    #         print(f"[INFO] inspecting {height_offset}, {width_offset} window")
+    #         cropped_image = crop_image_by_size(image, height_offset, width_offset, sliding_window_size)
 
-            minLoc, _ = find_matching_point_between_patch_and_reference(template, cropped_image, _debug=_debug)
-            (h, w) = cropped_image.shape[:2]
-            cropped_template = template[minLoc[1]:minLoc[1] + h, minLoc[0]:minLoc[0] + w]
-            if cropped_template is None:
-                continue
+            # minLoc, _ = find_matching_point_between_patch_and_reference(template, cropped_image, _debug=_debug)
+            # (h, w) = cropped_image.shape[:2]
+            # cropped_template = template[minLoc[1]:minLoc[1] + h, minLoc[0]:minLoc[0] + w]
+            # if cropped_template is None:
+            #     continue
+    cropped_image = image
+    minLoc, _ = find_matching_point_between_patch_and_reference(template, cropped_image, _debug=_debug)
+    (h, w) = cropped_image.shape[:2]
+    cropped_template = template[minLoc[1]:minLoc[1] + h, minLoc[0]:minLoc[0] + w]
 
-            possible_defects = find_defects_by_diffing_images(cropped_template, cropped_image,
-                _debug=_debug)
+    possible_defects = find_defects_by_diffing_images(cropped_template, image,
+        _debug=_debug)
 
-            _, contours, hierarchy = cv2.findContours(possible_defects, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-            # defect_contours = [contour for contour in contours if could_be_defect(contour)]
-            gray_drawing = filter_and_draw_contours(contours, hierarchy, cropped_image.shape, area_threshold=0,
-                _debug=_debug)
+    _, contours, hierarchy = cv2.findContours(possible_defects, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    defect_contours = [contour for contour in contours if could_be_defect(contour,defect_size_threshold=3)]
+    gray_drawing = filter_and_draw_contours(defect_contours, hierarchy, cropped_image.shape, area_threshold=0,
+        _debug=_debug)
 
-            for i in range(cropped_image.shape[1]):
-                for j in range(cropped_image.shape[1]):
-                    accumulated_defects[height_offset + i, width_offset+j] *= gray_drawing[i,j]
+    # for i in range(cropped_image.shape[1]):
+    #     for j in range(cropped_image.shape[1]):
+    #         accumulated_defects[height_offset + i, width_offset+j] *= gray_drawing[i,j]
+    accumulated_defects = gray_drawing
 
-            cv2.imshow("Result", accumulated_defects)
-            cv2.waitKey(0)
+    cv2.imshow("Result", accumulated_defects)
+    cv2.waitKey(0)
 
     boolean_image = cv2.threshold(accumulated_defects, 1, 255, cv2.THRESH_BINARY)[1]
     cv2.imshow("windows", boolean_image)

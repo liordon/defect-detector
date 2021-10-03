@@ -97,7 +97,6 @@ def prepare_for_matching(image_to_prepare, kernel, method: PreProcess, _debug=Fa
 
 
 def align_template_to_image(template, image, _debug=False):
-    global aligned_template
     preprocessing_method = PreProcess.MEDIAN_BLUR
     kernel_size = 5
     image_for_alignment = prepare_for_matching(image, kernel_size, preprocessing_method, _debug=_debug)
@@ -124,9 +123,9 @@ def find_matching_point_between_patch_and_reference(reference, image_patch, _deb
         cv2.imshow("template for alignment", reference)
         cv2.imshow("image for alignment", image_patch)
         cv2.waitKey(0)
-    patch_for_alignment = image_patch#prepare_for_matching(image_patch, kernel_size, preprocessing_method, _debug=_debug)
-    reference_for_alignment = reference#prepare_for_matching(reference, kernel_size, preprocessing_method,
-        # _debug=_debug)
+    patch_for_alignment = prepare_for_matching(image_patch, kernel_size, preprocessing_method, _debug=_debug)
+    reference_for_alignment = prepare_for_matching(reference, kernel_size, preprocessing_method,
+        _debug=_debug)
     (h, w) = image_patch.shape[:2]
     correlations = cv2.matchTemplate(reference_for_alignment, patch_for_alignment, cv2.TM_SQDIFF)
     minVal, maxVal, minLoc, maxLoc = cv2.minMaxLoc(correlations)
