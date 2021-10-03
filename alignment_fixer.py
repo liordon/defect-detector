@@ -91,14 +91,14 @@ def prepare_for_matching(image_to_prepare, kernel, method: PreProcess, _debug=Fa
         image = cv2.blur(image_to_prepare, (kernel, kernel))
     elif method is PreProcess.CONTOUR_STRIP:
         image = cv2.GaussianBlur(image_to_prepare, (kernel, kernel), 0)
-    image = unsharp_mask(image)
-    image = cv2.threshold(image, 80, 255, cv2.THRESH_TOZERO)[1]
-    return find_contours(image, 100, _debug=_debug)
+        image = find_contours(image, 100, _debug=_debug)
+    # image = unsharp_mask(image)
+    # image = cv2.threshold(image, 80, 255, cv2.THRESH_TOZERO)[1]
+    return image #find_contours(image, 100, _debug=_debug)
 
 
 def align_template_to_image(template, image, _debug=False):
-    global aligned_template
-    preprocessing_method = PreProcess.MEDIAN_BLUR
+    preprocessing_method = PreProcess.GAUSSIAN_BLUR
     kernel_size = 5
     image_for_alignment = prepare_for_matching(image, kernel_size, preprocessing_method, _debug=_debug)
     template_for_alignment = prepare_for_matching(template, kernel_size, preprocessing_method,
@@ -117,7 +117,7 @@ def align_template_to_image(template, image, _debug=False):
 
 
 def find_matching_point_between_patch_and_reference(reference, image_patch, _debug=False):
-    preprocessing_method = PreProcess.MEDIAN_BLUR
+    preprocessing_method = PreProcess.GAUSSIAN_BLUR
     kernel_size = 5
 
     if _debug:

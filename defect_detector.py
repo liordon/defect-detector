@@ -3,7 +3,8 @@ import argparse
 import cv2
 import numpy as np
 
-from alignment_fixer import find_matching_point_between_patch_and_reference, filter_and_draw_contours
+from alignment_fixer import find_matching_point_between_patch_and_reference, filter_and_draw_contours, \
+    align_template_to_image, PreProcess, prepare_for_matching
 from simple_manipulations import crop_image_by_size, crop_image_by_coordinates
 
 
@@ -14,15 +15,20 @@ def could_be_defect(contour, defect_size_threshold=20):
 
 def find_defects_by_diffing_images(image, aligned_template, _debug=False):
     print("[INFO] diffing images...")
+
+    preprocessing_method = PreProcess.GAUSSIAN_BLUR
+    kernel_size = 5
+    image = prepare_for_matching(image, kernel_size, preprocessing_method, _debug=_debug)
+    aligned_template = prepare_for_matching(aligned_template, kernel_size, preprocessing_method,
+        _debug=_debug)
     area_of_interest = cv2.threshold(aligned_template, 0, 255, cv2.THRESH_BINARY)[1]
     area_of_interest = cv2.erode(area_of_interest, np.ones((21, 21), np.uint8), iterations=3)
-    image = cv2.medianBlur(image, 3, 0)
-    aligned_template = cv2.medianBlur(aligned_template, (3), 0)
     # compute the absolute difference between the images
     image_delta = cv2.absdiff(image, aligned_template)
     image_delta = np.where(area_of_interest, image_delta, area_of_interest)
     possible_defects = cv2.threshold(image_delta, 35, 255, cv2.THRESH_BINARY)[1]
     possible_defects = cv2.bitwise_and(possible_defects, area_of_interest)
+    possible_defects = cv2.erode(possible_defects, (kernel_size, kernel_size), iterations=2)
     if _debug:
         cv2.imshow("Image Difference", image_delta)
         cv2.imshow("Difference Mask", possible_defects)
@@ -46,45 +52,32 @@ def search_for_defects_in_sliding_windows(image_path, template_path, sliding_win
     image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     template = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
 
-    image = crop_image_by_reference_coverage(image, template)
+    image = crop_image_by_reference_coverage(image, template, _debug=_debug)
 
     if _debug:
         cv2.imshow("image cropped according to coverage", image)
 
 
-    accumulated_defects = np.ones(image.shape)
+    cropped_image = image
+    minLoc, _ = find_matching_point_between_patch_and_reference(template, cropped_image, _debug=_debug)
+    (h, w) = cropped_image.shape[:2]
+    cropped_template = template[minLoc[1]:minLoc[1] + h, minLoc[0]:minLoc[0] + w]
 
-    for height_offset in range(0, image.shape[0] - int(sliding_window_size / 2), sliding_window_steps):
-        for width_offset in range(0, image.shape[1] - int(sliding_window_size / 2), sliding_window_steps):
-            # extra_width = (1 if x_offset % sliding_window_size == 0 and width_offset % sliding_window_size == 0 else 0)
-            # cv2.rectangle(image,
-            #     (x_offset, width_offset),
-            #     (x_offset + sliding_window_size, width_offset + sliding_window_size),
-            #     (150,0,0), 1 + extra_width)
-            # continue
-            print(f"[INFO] inspecting {height_offset}, {width_offset} window")
-            cropped_image = crop_image_by_size(image, height_offset, width_offset, sliding_window_size)
+    possible_defects = find_defects_by_diffing_images(cropped_template, image,
+        _debug=_debug)
 
-            minLoc, _ = find_matching_point_between_patch_and_reference(template, cropped_image, _debug=_debug)
-            (h, w) = cropped_image.shape[:2]
-            cropped_template = template[minLoc[1]:minLoc[1] + h, minLoc[0]:minLoc[0] + w]
-            if cropped_template is None:
-                continue
+    _, contours, hierarchy = cv2.findContours(possible_defects, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    defect_contours = [contour for contour in contours if could_be_defect(contour,defect_size_threshold=3)]
+    gray_drawing = filter_and_draw_contours(defect_contours, hierarchy, cropped_image.shape, area_threshold=0,
+        _debug=_debug)
 
-            possible_defects = find_defects_by_diffing_images(cropped_template, cropped_image,
-                _debug=_debug)
+    # for i in range(cropped_image.shape[1]):
+    #     for j in range(cropped_image.shape[1]):
+    #         accumulated_defects[height_offset + i, width_offset+j] *= gray_drawing[i,j]
+    accumulated_defects = gray_drawing
 
-            _, contours, hierarchy = cv2.findContours(possible_defects, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-            # defect_contours = [contour for contour in contours if could_be_defect(contour)]
-            gray_drawing = filter_and_draw_contours(contours, hierarchy, cropped_image.shape, area_threshold=0,
-                _debug=_debug)
-
-            for i in range(cropped_image.shape[0]):
-                for j in range(cropped_image.shape[1]):
-                    accumulated_defects[height_offset + i, width_offset+j] *= gray_drawing[i,j]
-
-            cv2.imshow("Result", accumulated_defects)
-            cv2.waitKey(0)
+    cv2.imshow("Result", accumulated_defects)
+    cv2.waitKey(0)
 
     boolean_image = cv2.threshold(accumulated_defects, 1, 255, cv2.THRESH_BINARY)[1]
     cv2.imshow("windows", boolean_image)
@@ -137,11 +130,11 @@ def crop_image_by_reference_coverage(image, reference, _debug=False):
         cv2.imshow("Image marked for coverage crop", image_with_rectangle)
         cv2.waitKey(0)
 
-    return crop_image_by_coordinates(image, top_image_edge+10, bottom_image_edge-10, left_image_edge+10, right_image_edge-10)
+    return crop_image_by_coordinates(image, top_image_edge, bottom_image_edge, left_image_edge, right_image_edge)
 
 
 if __name__ == "__main__":
-    show_debug_windows = True
+    show_debug_windows = False
     # construct the argument parser and parse the arguments
     ap = argparse.ArgumentParser()
     ap.add_argument("-i", "--image", required=True,
